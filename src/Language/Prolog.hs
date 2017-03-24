@@ -123,20 +123,20 @@ match dtb usedVars f = do
 fromList :: (MonadPlus m) => [a] -> m a
 fromList = msum . fmap return
 
-proove :: Database -> Expr -> [Subst]
-proove dtb goal = fmap (filterToRelevant (vars goal)) $ runProof $ proove' dtb mempty goal
+prove :: Database -> Expr -> [Subst]
+prove dtb goal = fmap (filterToRelevant (vars goal)) $ runProof $ prove' dtb mempty goal
 
-proove' :: Database -> Set.Set Var -> Expr -> Proof Subst
-proove' dtb usedVars (ExpAtom (Atom "true")) = return mempty
-proove' dtb usedVars (ExpAtom (Atom "fail")) = mzero
-proove' dtb usedVars (ExpFunc (Atom ",") [goal1, goal2]) = do
-                         subst <- proove' dtb (usedVars <> vars goal2) goal1
-                         fmap (subst <>) $ proove' dtb (usedVars <> vars goal1 <> collectVars subst) $ substitute subst goal2
-proove' dtb usedVars (ExpFunc (Atom ";") [goal1, goal2]) = proove' dtb (usedVars <> vars goal2) goal1 <|> proove' dtb (usedVars <> vars goal1) goal2
-proove' dtb usedVars (ExpFunc (Atom "=") [lhs, rhs]) = maybe mzero return $ fmap snd $ unify lhs rhs
-proove' dtb usedVars (ExpFunc (Atom "==") [lhs, rhs]) = if lhs == rhs then return mempty else mzero
-proove' dtb usedVars (ExpVar (Var name)) = return $ singleton (Var name) true
-proove' dtb usedVars expr = do
+prove' :: Database -> Set.Set Var -> Expr -> Proof Subst
+prove' dtb usedVars (ExpAtom (Atom "true")) = return mempty
+prove' dtb usedVars (ExpAtom (Atom "fail")) = mzero
+prove' dtb usedVars (ExpFunc (Atom ",") [goal1, goal2]) = do
+                         subst <- prove' dtb (usedVars <> vars goal2) goal1
+                         fmap (subst <>) $ prove' dtb (usedVars <> vars goal1 <> collectVars subst) $ substitute subst goal2
+prove' dtb usedVars (ExpFunc (Atom ";") [goal1, goal2]) = prove' dtb (usedVars <> vars goal2) goal1 <|> prove' dtb (usedVars <> vars goal1) goal2
+prove' dtb usedVars (ExpFunc (Atom "=") [lhs, rhs]) = maybe mzero return $ fmap snd $ unify lhs rhs
+prove' dtb usedVars (ExpFunc (Atom "==") [lhs, rhs]) = if lhs == rhs then return mempty else mzero
+prove' dtb usedVars (ExpVar (Var name)) = return $ singleton (Var name) true
+prove' dtb usedVars expr = do
             (subst1, goal) <- fromList $ match dtb usedVars expr
-            subst2 <- proove' dtb (usedVars <> collectVars subst1) goal
+            subst2 <- prove' dtb (usedVars <> collectVars subst1) goal
             return (subst1 <> subst2)

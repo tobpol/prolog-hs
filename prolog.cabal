@@ -2,7 +2,7 @@ name:                prolog
 version:             0.1.0.0
 -- synopsis:
 -- description:
-homepage:            https://github.com/tobpol/hs-prolog#readme
+homepage:            https://github.com/tobpol/prolog-hs#readme
 license:             BSD3
 license-file:        LICENSE
 author:              Tobias Polock

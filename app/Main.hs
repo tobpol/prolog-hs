@@ -35,10 +35,10 @@ loop dtb = do
             let queryRaw = parseQuery read
             case queryRaw of
                 Left parseError -> outputStrLn (show parseError) >> loop dtb
-                Right query -> prooveAndPrintResults dtb query >> loop dtb
+                Right query -> proveAndPrintResults dtb query >> loop dtb
     
-prooveAndPrintResults dtb query = do
-    let res = proove dtb query
+proveAndPrintResults dtb query = do
+    let res = prove dtb query
     printResults res
 
 printResults [] = outputStrLn "false."

@@ -42,13 +42,13 @@ main = hspec $ do
         let false = ExpAtom $ Atom "false"
         let testDB = [Fact (Atom "test"),
                        Predicate (Atom "equal") [ExpVar (Var "X"), ExpVar (Var "X")] true]
-        it "prooves truth" $ do
-            proove testDB true `shouldBe` return mempty
-        it "fails to proove falsehood" $ do
-            proove testDB false `shouldBe` mzero
-        it "prooves composite goals" $ do
-            proove testDB (ExpFunc (Atom ",") [true, true]) `shouldBe` return mempty
-            proove testDB (ExpFunc (Atom ";") [false, true]) `shouldBe` return mempty
+        it "proves truth" $ do
+            prove testDB true `shouldBe` return mempty
+        it "fails to prove falsehood" $ do
+            prove testDB false `shouldBe` mzero
+        it "proves composite goals" $ do
+            prove testDB (ExpFunc (Atom ",") [true, true]) `shouldBe` return mempty
+            prove testDB (ExpFunc (Atom ";") [false, true]) `shouldBe` return mempty
     parser
 
 parser = do 
