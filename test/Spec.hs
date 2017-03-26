@@ -2,8 +2,9 @@ import Language.Prolog
 import Language.Prolog.Parser
 import Test.Hspec
 
-import Text.Parsec
+import Text.Parsec (parse, eof)
 import Control.Monad
+import Control.Applicative
 import Data.Monoid
 
 main :: IO ()
@@ -37,7 +38,14 @@ main = hspec $ do
             match testDB mempty (ExpFunc (Atom "equal") [ExpVar (Var "Y"), ExpAtom (Atom "a")]) `shouldBe` (return ((singleton (Var "Y") (ExpAtom (Atom "a")) <> singleton (Var "_X1") (ExpAtom (Atom "a"))), true))
         it "renames variables in predicates" $ do
             match testDB mempty (ExpFunc (Atom "equal") [ExpVar (Var "X"), ExpAtom (Atom "a")]) `shouldNotBe` (return (singleton (Var "X") (ExpAtom (Atom "a")), true))
-    describe "Proover" $ do
+    describe "Cut-Monad" $ do
+        it "propagates cuts through binds" $ do
+            (Cut (True, [True]) >>= \b -> Cut (b, [b])) `shouldBe` Cut (True, [True])
+            (Cut (False, [True]) >>= \b -> Cut (b, [b])) `shouldBe` Cut (True, [True])
+            (Cut (True, [False]) >>= \b -> Cut (b, [b])) `shouldBe` Cut (True, [False])
+        it "cuts alternatives" $ do
+            (Cut (True, []) <|> Cut (False, [True])) `shouldBe` (Cut (True, []))
+    describe "Prover" $ do
         let true = ExpAtom $ Atom "true"
         let false = ExpAtom $ Atom "false"
         let testDB = [Fact (Atom "test"),
@@ -49,6 +57,9 @@ main = hspec $ do
         it "proves composite goals" $ do
             prove testDB (ExpFunc (Atom ",") [true, true]) `shouldBe` return mempty
             prove testDB (ExpFunc (Atom ";") [false, true]) `shouldBe` return mempty
+        it "abides cuts" $ do
+            fmap (runCut . runProof' . prove' testDB mempty) (parseQuery "!;!.") `shouldBe` Right (True, return mempty)
+            fmap (prove testDB) (parseQuery "(!, fail); true.") `shouldBe` (Right mzero)
     parser
 
 parser = do 

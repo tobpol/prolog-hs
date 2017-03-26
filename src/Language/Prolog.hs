@@ -6,6 +6,7 @@ module Language.Prolog where
 
 import                       Control.Monad
 import                       Control.Applicative
+import                       Control.Arrow
 import                       Data.Maybe
 import                       Data.Monoid
 import                       Data.List
@@ -106,7 +107,42 @@ instance Show Predicate where
 
 type Database = [Predicate]
 
-newtype Proof a = Proof {runProof :: [a]} deriving (Show, Eq, Ord, Functor, Applicative, Monad, MonadPlus, Alternative)  -- ToDo: add State (Database), cuts…
+newtype Cut a = Cut {runCut :: (Bool, [a])} deriving (Show, Eq, Ord)
+
+instance Functor Cut where
+    fmap f (Cut (b,xs)) = Cut $ (b, fmap f xs)
+
+instance Monad Cut where
+    return = Cut . ((,) False) . return
+    (Cut (b, l)) >>= f = Cut $ first (||b) $ takeToCut $ fmap (runCut . f) l
+        where takeToCut :: [(Bool, [a])] -> (Bool, [a])
+              takeToCut [] = (False,[])
+              takeToCut ((True, x):_) = (True,x)
+              takeToCut ((False, x):xs) = fmap (x++) $ takeToCut xs
+
+instance Applicative Cut where
+    pure = return
+    (<*>) = ap
+
+instance MonadPlus Cut where
+    mzero = Cut (False, mzero)
+    (Cut (False, xs)) `mplus` (Cut (b, ys)) = Cut (b, xs `mplus` ys)
+    (Cut (True, xs)) `mplus` _ = Cut (True, xs)
+
+instance Alternative Cut where
+    empty = mzero
+    (<|>) = mplus
+
+cut :: Proof a -> Proof a
+cut (Proof (Cut (_, xs))) = Proof $ Cut (True, xs)
+
+stopCut :: Proof a -> Proof a
+stopCut (Proof (Cut (_, xs))) = Proof $ Cut (False, xs)
+
+newtype Proof a = Proof {runProof' :: Cut a} deriving (Show, Eq, Ord, Functor, Applicative, Monad, MonadPlus, Alternative)  -- ToDo: add State (Database), writer (Subst)…
+
+runProof :: Proof a -> [a]
+runProof (Proof (Cut (_, xs))) = xs
 
 match :: Database -> Set.Set Var -> Expr -> [(Subst, Expr)]
 match dtb _ (ExpAtom name) = do
@@ -129,6 +165,7 @@ prove dtb goal = fmap (filterToRelevant (vars goal)) $ runProof $ prove' dtb mem
 prove' :: Database -> Set.Set Var -> Expr -> Proof Subst
 prove' dtb usedVars (ExpAtom (Atom "true")) = return mempty
 prove' dtb usedVars (ExpAtom (Atom "fail")) = mzero
+prove' dtb usedVars (ExpAtom (Atom "!")) = cut $ return mempty
 prove' dtb usedVars (ExpFunc (Atom ",") [goal1, goal2]) = do
                          subst <- prove' dtb (usedVars <> vars goal2) goal1
                          fmap (subst <>) $ prove' dtb (usedVars <> vars goal1 <> collectVars subst) $ substitute subst goal2
@@ -136,7 +173,7 @@ prove' dtb usedVars (ExpFunc (Atom ";") [goal1, goal2]) = prove' dtb (usedVars <
 prove' dtb usedVars (ExpFunc (Atom "=") [lhs, rhs]) = maybe mzero return $ fmap snd $ unify lhs rhs
 prove' dtb usedVars (ExpFunc (Atom "==") [lhs, rhs]) = if lhs == rhs then return mempty else mzero
 prove' dtb usedVars (ExpVar (Var name)) = return $ singleton (Var name) true
-prove' dtb usedVars expr = do
+prove' dtb usedVars expr = stopCut $ do
             (subst1, goal) <- fromList $ match dtb usedVars expr
             subst2 <- prove' dtb (usedVars <> collectVars subst1) goal
             return (subst1 <> subst2)

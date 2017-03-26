@@ -73,7 +73,7 @@ func = do
     spaces
     return $ ExpFunc name xs
 
-atom = try lowercaseName <|> quotedName
+atom = try lowercaseName <|> try quotedName <|> specialName
         where lowercaseName = do
                 x <- lower
                 xs <- many letter
@@ -82,6 +82,9 @@ atom = try lowercaseName <|> quotedName
               quotedName = do
                 name <- between (char '\'') (char '\'') $ many $ noneOf "'"
                 spaces
+                return $ Atom $ name
+              specialName = do
+                name <- try (string "!") <|> try (string "[]")
                 return $ Atom $ name
 var = do
     x <- upper <|> char '_'
