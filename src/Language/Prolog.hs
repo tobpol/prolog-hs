@@ -1,10 +1,14 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Language.Prolog where
 
 import                       Control.Monad
+import                       Control.Monad.RWS
 import                       Control.Applicative
 import                       Control.Arrow
 import                       Data.Maybe
@@ -133,16 +137,33 @@ instance Alternative Cut where
     empty = mzero
     (<|>) = mplus
 
-cut :: Proof a -> Proof a
-cut (Proof (Cut (_, xs))) = Proof $ Cut (True, xs)
+class (Monad m) => MonadCut m where
+    cut :: m a -> m a
+    stopCut :: m a -> m a
 
-stopCut :: Proof a -> Proof a
-stopCut (Proof (Cut (_, xs))) = Proof $ Cut (False, xs)
+instance MonadCut Cut where
+    cut (Cut (_,xs)) = Cut (True,xs)
+    stopCut (Cut (_,xs)) = Cut (False,xs)
 
-newtype Proof a = Proof {runProof' :: Cut a} deriving (Show, Eq, Ord, Functor, Applicative, Monad, MonadPlus, Alternative)  -- ToDo: add State (Database), writer (Subst)…
+newtype Proof a = Proof {runProof' :: RWST (Set.Set Var) Subst Database Cut a} deriving (Functor, MonadPlus, Alternative, MonadReader (Set.Set Var), MonadWriter Subst, MonadState Database)
 
-runProof :: Proof a -> [a]
-runProof (Proof (Cut (_, xs))) = xs
+instance Monad Proof where
+    return = Proof . return
+    (Proof f) >>= g = Proof $ do
+                        (a,s) <- listen f
+                        local (collectVars s <>) $ runProof' $ g a
+
+instance Applicative Proof where
+    pure = return
+    (<*>) = ap
+
+instance MonadCut Proof where
+    cut (Proof f) = Proof $ RWST $ \v d -> cut $ runRWST f v d
+    stopCut (Proof f) = Proof $ RWST $ \v d -> stopCut $ runRWST f v d
+    
+
+reserveVars :: Set.Set Var -> Proof a -> Proof a
+reserveVars v = local (<>v)
 
 match :: Database -> Set.Set Var -> Expr -> [(Subst, Expr)]
 match dtb _ (ExpAtom name) = do
@@ -159,21 +180,27 @@ match dtb usedVars f = do
 fromList :: (MonadPlus m) => [a] -> m a
 fromList = msum . fmap return
 
-prove :: Database -> Expr -> [Subst]
-prove dtb goal = fmap (filterToRelevant (vars goal)) $ runProof $ prove' dtb mempty goal
+runProof :: Database -> Proof a -> [Subst]
+runProof d (Proof f) = fmap (\(_,_,s) -> s) $ snd $ runCut $ runRWST f mempty d
 
-prove' :: Database -> Set.Set Var -> Expr -> Proof Subst
-prove' dtb usedVars (ExpAtom (Atom "true")) = return mempty
-prove' dtb usedVars (ExpAtom (Atom "fail")) = mzero
-prove' dtb usedVars (ExpAtom (Atom "!")) = cut $ return mempty
-prove' dtb usedVars (ExpFunc (Atom ",") [goal1, goal2]) = do
-                         subst <- prove' dtb (usedVars <> vars goal2) goal1
-                         fmap (subst <>) $ prove' dtb (usedVars <> vars goal1 <> collectVars subst) $ substitute subst goal2
-prove' dtb usedVars (ExpFunc (Atom ";") [goal1, goal2]) = prove' dtb (usedVars <> vars goal2) goal1 <|> prove' dtb (usedVars <> vars goal1) goal2
-prove' dtb usedVars (ExpFunc (Atom "=") [lhs, rhs]) = maybe mzero return $ fmap snd $ unify lhs rhs
-prove' dtb usedVars (ExpFunc (Atom "==") [lhs, rhs]) = if lhs == rhs then return mempty else mzero
-prove' dtb usedVars (ExpVar (Var name)) = return $ singleton (Var name) true
-prove' dtb usedVars expr = stopCut $ do
+prove :: Database -> Expr -> [Subst]
+prove dtb goal = fmap (filterToRelevant (vars goal)) $ runProof dtb $ prove' goal
+
+prove' :: Expr -> Proof ()
+prove' (ExpAtom (Atom "true")) = return mempty
+prove' (ExpAtom (Atom "fail")) = mzero
+prove' (ExpAtom (Atom "!")) = cut $ return mempty
+prove' (ExpFunc (Atom ",") [goal1, goal2]) = do
+            reserveVars (vars goal2) $ prove' goal1
+            reserveVars (vars goal1) $ prove' goal2
+prove' (ExpFunc (Atom ";") [goal1, goal2]) = reserveVars (vars goal2) (prove' goal1) <|> reserveVars (vars goal1) (prove' goal2)
+prove' (ExpFunc (Atom "=") [lhs, rhs]) = maybe mzero tell $ fmap snd $ unify lhs rhs
+prove' (ExpFunc (Atom "==") [lhs, rhs]) = if lhs == rhs then return mempty else mzero
+prove' (ExpVar (Var name)) = tell $ singleton (Var name) true
+prove' expr = stopCut $ do
+            dtb <- get
+            usedVars <- ask
             (subst1, goal) <- fromList $ match dtb usedVars expr
-            subst2 <- prove' dtb (usedVars <> collectVars subst1) goal
-            return (subst1 <> subst2)
+            tell subst1
+            reserveVars (collectVars subst1) $ prove' goal
+

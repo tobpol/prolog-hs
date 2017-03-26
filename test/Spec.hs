@@ -58,7 +58,6 @@ main = hspec $ do
             prove testDB (ExpFunc (Atom ",") [true, true]) `shouldBe` return mempty
             prove testDB (ExpFunc (Atom ";") [false, true]) `shouldBe` return mempty
         it "abides cuts" $ do
-            fmap (runCut . runProof' . prove' testDB mempty) (parseQuery "!;!.") `shouldBe` Right (True, return mempty)
             fmap (prove testDB) (parseQuery "(!, fail); true.") `shouldBe` (Right mzero)
     parser
 
